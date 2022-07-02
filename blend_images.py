@@ -35,4 +35,4 @@ def blend_images(image1, image2, mask, levels=5):
     inverted_gauss_pyromid = build_gaussian_pyromid(1 - mask, levels)
     blended_pyramid = list(map(lambda a, b, c, d: a * b + c * d, 
                            lpyromid1, gauss_pyromid, lpyromid2, inverted_gauss_pyromid))
-    return invert_laplassian_pyromid(blended_pyramid)
+    return np.clip(invert_laplassian_pyromid(blended_pyramid), 0, 1)
