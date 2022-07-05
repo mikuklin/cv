@@ -12,8 +12,6 @@ from skimage import io, img_as_float
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-!wget https://download.pytorch.org/tutorial/hymenoptera_data.zip
-!unzip hymenoptera_data.zip -d ./data/
 
 def get_data(path):
 
@@ -45,14 +43,13 @@ class DataGenerator(Dataset):
     def __getitem__(self, idx):
         image_filepath = self.images_filepaths[idx]
         image = img_as_float(io.imread(image_filepath)).astype(np.float32)[..., :3]
-        io.imshow(image)
         if os.path.normpath(image_filepath).split(os.sep)[-2] == "ants":
             label = 1
         else:
             label = 0
         if self.transform is not None:
              return self.transform(image=image)["image"].float(), label
-        return image, label
+        return torch.tensor(np.moveaxis(image, 2, 0)).float(), label
 
 model = models.resnet18(pretrained = True)
 input_size = 224
@@ -87,4 +84,66 @@ val_transform = A.Compose(
 train, val = get_data('data/hymenoptera_data')
 train = DataGenerator(train, train_transform)
 val = DataGenerator(val, val_transform)
-train, val = get_data('data/hymenoptera_data')
+image_datasets = {'train':train, 'val': val}
+dataloaders_dict = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=32,
+                                                   shuffle=True,) for x in ['train', 'val']}
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print('using device {}'.format(device))
+
+def train_model(model, data, device, loss_func, optimizer, epoches):
+    start = time.time()
+    train_accuracy_hist = []
+    val_accuracy_hist = []
+    train_loss_hist = []
+    val_loss_hist = []
+
+    for epoch in range(epoches):
+        print('Epoch {}/{}'.format(epoch + 1, epoches))
+        print('-' * 10)
+        epoch_start = time.time()
+        model.train()
+        epoch_loss = 0
+        epoch_correct = 0
+        for X, y in data['train']:
+            X = X.to(device)
+            y = y.to(device)
+            optimizer.zero_grad()
+            output = model(X)
+            loss = loss_func(output, y)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item() * X.size(dim = 0)
+            _, preds = torch.max(output, dim = 1)
+            epoch_correct += torch.sum(preds == y.data)
+        train_accuracy_hist.append(epoch_correct/len(data['train'].dataset))
+        train_loss_hist.append(epoch_loss/len(data['train'].dataset))
+        print('train Loss: {:4f}, Acc: {:4f}'.format(train_loss_hist[-1], train_accuracy_hist[-1]))
+
+        model.eval()
+        with torch.no_grad():
+            epoch_loss = 0
+            epoch_correct = 0
+            for X, y in data['val']:
+                X = X.to(device)
+                y = y.to(device)
+                output = model(X)
+                loss = loss_func(output, y)
+                epoch_loss += loss.item() * X.size(dim = 0)
+                _, preds = torch.max(output, dim = 1)
+                epoch_correct += torch.sum(preds == y.data)
+        val_accuracy_hist.append(epoch_correct/len(data['val'].dataset))
+        val_loss_hist.append(epoch_loss/len(data['val'].dataset))
+        epoch_time = time.time() - epoch_start
+        print('val Loss: {:4f}, Acc: {:4f}'.format(val_loss_hist[-1], val_accuracy_hist[-1]))
+        print('Epoch complete in {:.0f}m {:.0f}s'.format(epoch_time // 60, epoch_time % 60))
+
+
+    time_elapsed = time.time() - start
+    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    print('Best val Acc: {:4f}'.format(max(val_accuracy_hist)))
+
+    return model, train_accuracy_hist, val_accuracy_hist, train_loss_hist, val_loss_hist
+
+optimizer = optim.Adam([param for param in model.parameters() if param.requires_grad], lr=0.0001)
+model = model.to(device).float()
+model, ta, va, tl, vl = train_model(model, dataloaders_dict, device, nn.CrossEntropyLoss(), optimizer, epoches = 40)
