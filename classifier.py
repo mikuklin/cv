@@ -1,11 +1,11 @@
 import torch
 import time
 import os
-import copy
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
+import seaborn as sns
 from torch.utils.data import Dataset
 from torchvision import models
 from skimage import io, img_as_float
@@ -49,7 +49,7 @@ class DataGenerator(Dataset):
             label = 0
         if self.transform is not None:
              return self.transform(image=image)["image"].float(), label
-        return torch.tensor(np.moveaxis(image, 2, 0)).float(), label
+        return torch.tensor(image).float(), label
 
 model = models.resnet18(pretrained = True)
 input_size = 224
@@ -60,6 +60,8 @@ for param in model.parameters():
     param.requires_grad = False
 model.fc.weight.requires_grad = True
 model.fc.bias.requires_grad = True
+for param in model.layer4[1].parameters():
+    param.requires_grad = True
 
 train_transform = A.Compose(
     [
@@ -115,9 +117,9 @@ def train_model(model, data, device, loss_func, optimizer, epoches):
             epoch_loss += loss.item() * X.size(dim = 0)
             _, preds = torch.max(output, dim = 1)
             epoch_correct += torch.sum(preds == y.data)
-        train_accuracy_hist.append(epoch_correct/len(data['train'].dataset))
+        train_accuracy_hist.append((epoch_correct/len(data['train'].dataset)).item())
         train_loss_hist.append(epoch_loss/len(data['train'].dataset))
-        print('train Loss: {:4f}, Acc: {:4f}'.format(train_loss_hist[-1], train_accuracy_hist[-1]))
+        print('train Loss: {:.4f}, Acc: {:.4f}'.format(train_loss_hist[-1], train_accuracy_hist[-1]))
 
         model.eval()
         with torch.no_grad():
@@ -131,10 +133,22 @@ def train_model(model, data, device, loss_func, optimizer, epoches):
                 epoch_loss += loss.item() * X.size(dim = 0)
                 _, preds = torch.max(output, dim = 1)
                 epoch_correct += torch.sum(preds == y.data)
-        val_accuracy_hist.append(epoch_correct/len(data['val'].dataset))
+        val_accuracy_hist.append((epoch_correct/len(data['val'].dataset)).item())
         val_loss_hist.append(epoch_loss/len(data['val'].dataset))
         epoch_time = time.time() - epoch_start
-        print('val Loss: {:4f}, Acc: {:4f}'.format(val_loss_hist[-1], val_accuracy_hist[-1]))
+        print('val Loss: {:4f}, Acc: {:.4f}'.format(val_loss_hist[-1], val_accuracy_hist[-1]))
+        print('Epoch complete in {:.0f}m {:.0f}s'.format(epoch_time // 60, epoch_time % 60))
+
+
+    time_elapsed = time.time() - start
+    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    print('Best val Acc: {:.4f}'.format(max(val_accuracy_hist)))
+
+    return model, train_accuracy_hist, val_accuracy_hist, train_loss_hist, val_loss_hist
+
+optimizer = optim.Adam([param for param in model.parameters() if param.requires_grad], lr=0.0001)
+model = model.to(device).float()
+model, ta, va, tl, vl = train_model(model, dataloaders_dict, device, nn.CrossEntropyLoss(), optimizer, epoches = 40)
         print('Epoch complete in {:.0f}m {:.0f}s'.format(epoch_time // 60, epoch_time % 60))
 
 
@@ -147,3 +161,13 @@ def train_model(model, data, device, loss_func, optimizer, epoches):
 optimizer = optim.Adam([param for param in model.parameters() if param.requires_grad], lr=0.0001)
 model = model.to(device).float()
 model, ta, va, tl, vl = train_model(model, dataloaders_dict, device, nn.CrossEntropyLoss(), optimizer, epoches = 40)
+
+sns.set(rc={'figure.figsize':(12,8)})
+sns.lineplot(data = {"train":ta, "val":va})
+plt.xlabel("epoch", fontsize=16)
+plt.ylabel("accuracy", fontsize=16)
+plt.show()
+sns.lineplot(data = {"train":tl, "val":vl})
+plt.xlabel("epoch", fontsize=16)
+plt.ylabel("loss", fontsize=16)
+plt.show()
