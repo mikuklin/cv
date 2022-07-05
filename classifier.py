@@ -149,18 +149,6 @@ def train_model(model, data, device, loss_func, optimizer, epoches):
 optimizer = optim.Adam([param for param in model.parameters() if param.requires_grad], lr=0.0001)
 model = model.to(device).float()
 model, ta, va, tl, vl = train_model(model, dataloaders_dict, device, nn.CrossEntropyLoss(), optimizer, epoches = 40)
-        print('Epoch complete in {:.0f}m {:.0f}s'.format(epoch_time // 60, epoch_time % 60))
-
-
-    time_elapsed = time.time() - start
-    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-    print('Best val Acc: {:4f}'.format(max(val_accuracy_hist)))
-
-    return model, train_accuracy_hist, val_accuracy_hist, train_loss_hist, val_loss_hist
-
-optimizer = optim.Adam([param for param in model.parameters() if param.requires_grad], lr=0.0001)
-model = model.to(device).float()
-model, ta, va, tl, vl = train_model(model, dataloaders_dict, device, nn.CrossEntropyLoss(), optimizer, epoches = 40)
 
 sns.set(rc={'figure.figsize':(12,8)})
 sns.lineplot(data = {"train":ta, "val":va})
